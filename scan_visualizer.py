@@ -161,26 +161,20 @@ class ImageProcessor:
             method=self._interpolation_method,
             fill_value=np.nan,
         )
-        # Seems there are still NaN values after interpolation
-        # 'nearest' neighbor will resolve all NaN values but
-        # user can specify linear/cubic interpolation for griddata
-        # which may not resolve all NaN values
-        mask = np.isnan(grid_z)
-        grid_z[mask] = griddata(
-            points,
-            values,
-            (grid_x[mask], grid_y[mask]),
-            method=self._griddata_method,
-        )
+        # If the initial interpolation is not nearest neighbor,
+        # interpolate the missing values with nearest neighbor
+        if (self._interpolation_method != 'nearest'):
+            mask = np.isnan(grid_z)
+            grid_z[mask] = griddata(
+                points,
+                values,
+                (grid_x[mask], grid_y[mask]),
+                method='nearest',
+            )
         return grid_z
 
     def _smooth_data(self, data):
         smoothed_data = gaussian_filter(data, sigma=self._sigma_value)
-        # Replace 'NaN' values with the minimum value after smoothing
-        # Necessary if 'griddata_method' is not 'nearest'
-        min_value = np.nanmin(smoothed_data[np.isfinite(smoothed_data)])
-        smoothed_data = np.nan_to_num(smoothed_data, nan=min_value)
-
         smoothed_data -= np.nanmin(smoothed_data)  # Set darkest pixel to black
         if np.nanmax(smoothed_data) != 0:
             smoothed_data /= np.nanmax(smoothed_data)  # Scale to [0,1]
@@ -201,7 +195,7 @@ if __name__ == "__main__":
     processor.set_processing_params(
         interpolation_method="linear",
         sigma_value=2,
-        griddata_method="linear",
+        griddata_method="nearest",
     )
     width, height = 1000, 1000
     processor.create_image(width, height).save("data/output.png")
