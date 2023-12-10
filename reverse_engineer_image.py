@@ -4,7 +4,7 @@ from scipy.interpolate import griddata
 from scipy.ndimage import gaussian_filter
 from PIL import Image
 
-# I decided to use classes instead for this exercise because I was starting
+# I decided to use classes for this exercise because I was starting
 # to pass around an annoying amount of variables and I wanted to keep the
 # code clean and readable and add some generalization to the functionality.
 
@@ -14,6 +14,12 @@ from PIL import Image
 # Also assuming a fixed number of sensors (7) here.
 # It'd be fun to make this more general by allowing more or tighter 'rings'
 class HexagonalDetectorGeometry:
+    """
+    Represents the geometry of a hexagonal detector array. This class is
+    responsible for processing and transforming scan data based on the
+    detector layout.
+    """
+
     NUM_SENSORS = 7
     ANGLE_BETWEEN_SENSORS = math.pi / 3
 
@@ -56,14 +62,20 @@ class HexagonalDetectorGeometry:
                 row, col = coord
                 if 0 <= row < img_width and 0 <= col < img_height:
                     # [row, col] seems to produce incorrect output
-                    # need to verify
+                    # Apparently images are typically represented with the
+                    # first dimension as rows and the second dimension as
+                    # columns, but our coordinates are based on an (x, y)
+                    # Cartesian system. Hence, we need to reverse the order
+                    # when indexing into the image data array.
                     image_data[col, row] += self._scandata[f"amp{i}"][index]
                     count_data[col, row] += 1
 
         with np.errstate(divide="ignore", invalid="ignore"):
             averaged_data = np.true_divide(image_data, count_data)
             averaged_data[~np.isfinite(averaged_data)] = 0
-        return averaged_data
+        # Need to count_data for proper interpolation since
+        # a '0' measurement is not the same as a missing measurement
+        return (averaged_data, count_data)
 
     # Mapping image coords one index at a time to avoid excessive memory usage
     # if the dataset becomes extremely large which, presumably, it will.
@@ -126,12 +138,13 @@ class ImageProcessor:
             self._griddata_method = kwargs["griddata_method"]
 
     def create_image(self, img_width, img_height):
-        data = self.detector_geometry.parse_data_for_image(
+        (data, count_data) = self.detector_geometry.parse_data_for_image(
             img_width, img_height
         )
         # Prepare data for interpolation
-        points = np.argwhere(data > 0)  # Get the coords of non-zero entries
-        values = data[data > 0]  # Get the corresponding non-zero avg vals
+        # Get rid of zero COUNT values (areas the detectors did not cover)
+        points = np.argwhere(count_data > 0)  # Coords of measured areas
+        values = data[count_data > 0]  # Corresponding measured values
 
         interpolated_data = self._perform_interpolation(
             points, values, img_width, img_height
@@ -148,11 +161,9 @@ class ImageProcessor:
             method=self._interpolation_method,
             fill_value=np.nan,
         )
-        # RuntimeWarning: invalid value encountered in cast
-        # image_data = np.clip(smoothed_data, 0, 255).astype(np.uint8)
         # Seems there are still NaN values after interpolation
-        # Replace NaN values with nearest neighbor
-        # User can specify linear/cubic interpolation for griddata
+        # 'nearest' neighbor will resolve all NaN values but
+        # user can specify linear/cubic interpolation for griddata
         # which may not resolve all NaN values
         mask = np.isnan(grid_z)
         grid_z[mask] = griddata(
@@ -164,8 +175,9 @@ class ImageProcessor:
         return grid_z
 
     def _smooth_data(self, data):
-        # Apply Gaussian filter for smoothing
         smoothed_data = gaussian_filter(data, sigma=self._sigma_value)
+        # Replace 'nan' values with the minimum value after smoothing
+        # Necessary if 'griddata_method' is not 'nearest'
         min_value = np.nanmin(smoothed_data[np.isfinite(smoothed_data)])
         smoothed_data = np.nan_to_num(smoothed_data, nan=min_value)
 
@@ -188,7 +200,7 @@ if __name__ == "__main__":
     processor = ImageProcessor(detector)
     processor.set_processing_params(
         interpolation_method="linear",
-        sigma_value=1.2,
+        sigma_value=2,
         griddata_method="linear",
     )
     processor.create_image(1000, 1000).save("output.png")
