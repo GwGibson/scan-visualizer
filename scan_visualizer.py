@@ -32,6 +32,9 @@ class HexagonalDetectorGeometry:
         self._range_x, self._range_y = 0, 0
 
     def load_data(self, file_path):
+        # Might be useful to allow for multiple data files to be loaded
+        # and run successively through the same instance of this class.
+        # Would be nice for batch processing on a server.
         try:
             dd = np.load(file_path, allow_pickle=True)
             self._scandata = dd["scandata"].item()
@@ -49,6 +52,9 @@ class HexagonalDetectorGeometry:
             print(f"An error occurred while loading the data: {ex}")
 
     def parse_data_for_image(self, img_width, img_height):
+        if self._scandata is None:
+            raise ValueError("Scan data not loaded. Please load data first.")
+
         # Sparse matrices might make sense here
         image_data = np.zeros((img_height, img_width))
         count_data = np.zeros((img_height, img_width))
@@ -73,16 +79,13 @@ class HexagonalDetectorGeometry:
         with np.errstate(divide="ignore", invalid="ignore"):
             averaged_data = np.true_divide(image_data, count_data)
             averaged_data[~np.isfinite(averaged_data)] = 0
-        # Need to count_data for proper interpolation since
+        # Need 'count_data' for proper interpolation since
         # a '0' measurement is not the same as a missing measurement
         return (averaged_data, count_data)
 
     # Mapping image coords one index at a time to avoid excessive memory usage
     # if the dataset becomes extremely large which, presumably, it will.
     def _map_to_image_coords(self, index, img_width, img_height):
-        if self._scandata is None:
-            raise ValueError("Scan data not loaded. Please load data first.")
-
         center_x, center_y = (
             self._scandata["x_coord"][index] - self._min_x,
             self._scandata["y_coord"][index] - self._min_y,
@@ -93,7 +96,7 @@ class HexagonalDetectorGeometry:
         img_coords = [0 for _ in range(self.NUM_SENSORS)]
         for i in range(self.NUM_SENSORS):
             rel_x, rel_y = 0, 0
-            if i != 0:
+            if i != 0:  # Detector 0 is at the center
                 angle = (i - 1) * self.ANGLE_BETWEEN_SENSORS
                 rel_x = self.sensor_distance * math.cos(angle)
                 rel_y = self.sensor_distance * math.sin(angle)
@@ -163,13 +166,13 @@ class ImageProcessor:
         )
         # If the initial interpolation is not nearest neighbor,
         # interpolate the missing values with nearest neighbor
-        if (self._interpolation_method != 'nearest'):
+        if self._interpolation_method != "nearest":
             mask = np.isnan(grid_z)
             grid_z[mask] = griddata(
                 points,
                 values,
                 (grid_x[mask], grid_y[mask]),
-                method='nearest',
+                method="nearest",
             )
         return grid_z
 
