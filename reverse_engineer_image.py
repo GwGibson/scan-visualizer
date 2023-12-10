@@ -203,4 +203,4 @@ if __name__ == "__main__":
         sigma_value=2,
         griddata_method="linear",
     )
-    processor.create_image(1000, 1000).save("output.png")
+    processor.create_image(1000, 1000).save("data/output.png")
