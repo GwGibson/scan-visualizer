@@ -12,7 +12,7 @@ from PIL import Image
 # This could inherit from a more general detector class but
 # do not want to get too off track for this exercise
 # Also assuming a fixed number of sensors (7) here.
-# It'd be fun to make this more general by allowing more or tighter 'rings'
+# It'd be fun to make this more general by allowing more and/or tighter 'rings'
 class HexagonalDetectorGeometry:
     """
     Represents the geometry of a hexagonal detector array. This class is
@@ -176,7 +176,7 @@ class ImageProcessor:
 
     def _smooth_data(self, data):
         smoothed_data = gaussian_filter(data, sigma=self._sigma_value)
-        # Replace 'nan' values with the minimum value after smoothing
+        # Replace 'NaN' values with the minimum value after smoothing
         # Necessary if 'griddata_method' is not 'nearest'
         min_value = np.nanmin(smoothed_data[np.isfinite(smoothed_data)])
         smoothed_data = np.nan_to_num(smoothed_data, nan=min_value)
@@ -203,4 +203,5 @@ if __name__ == "__main__":
         sigma_value=2,
         griddata_method="linear",
     )
-    processor.create_image(1000, 1000).save("data/output.png")
+    width, height = 1000, 1000
+    processor.create_image(width, height).save("data/output.png")
