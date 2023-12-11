@@ -1,8 +1,9 @@
 import math
 import numpy as np
+from collections import defaultdict
+from PIL import Image
 from scipy.interpolate import griddata
 from scipy.ndimage import gaussian_filter
-from PIL import Image
 
 # I decided to use classes for this exercise because I was starting
 # to pass around an annoying amount of variables and I wanted to keep the
@@ -55,33 +56,36 @@ class HexagonalDetectorGeometry:
         if self._scandata is None:
             raise ValueError("Scan data not loaded. Please load data first.")
 
-        # Sparse matrices might make sense here
-        image_data = np.zeros((img_height, img_width))
-        count_data = np.zeros((img_height, img_width))
+        # I changed the implementation here from my intial approach
+        # This way is definitely more memory efficient and should be
+        # faster for large datasets as well, although proper benchmarking
+        # would be necessary for a conclusive answer.
+
+        # Using defaultdict to automatically handle missing keys
+        data_dict = defaultdict(lambda: [0, 0])  # Default to [sum, count]
 
         len_data = len(self._scandata["x_coord"])
         for index in range(len_data):
             img_coords = self._map_to_image_coords(
                 index, img_width, img_height
             )
-            for i, coord in enumerate(img_coords):
-                row, col = coord
-                if 0 <= row < img_width and 0 <= col < img_height:
-                    # [row, col] seems to produce incorrect output
-                    # Apparently images are typically represented with the
-                    # first dimension as rows and the second dimension as
-                    # columns, but our coordinates are based on an (x, y)
-                    # Cartesian system. Hence, we need to reverse the order
-                    # when indexing into the image data array.
-                    image_data[col, row] += self._scandata[f"amp{i}"][index]
-                    count_data[col, row] += 1
+            for i, (row, col) in enumerate(img_coords):
+                # If these coords exist in the dictionary, add the
+                # current amplitude to the sum and increment the count
+                # Otherwise, the default value of [0, 0] will be used
+                data_dict[(col, row)][0] += self._scandata[f"amp{i}"][index]
+                data_dict[(col, row)][1] += 1
 
-        with np.errstate(divide="ignore", invalid="ignore"):
-            averaged_data = np.true_divide(image_data, count_data)
-            averaged_data[~np.isfinite(averaged_data)] = 0
-        # Need 'count_data' for proper interpolation since
-        # a '0' measurement is not the same as a missing measurement
-        return (averaged_data, count_data)
+        # Should be possible to build these arrays directly although
+        # it might be a problem to search through the array to find the
+        # correct index to update.
+        points = np.array(
+            [key for key, val in data_dict.items() if val[1] > 0]
+        )
+        values = np.array(
+            [val[0] / val[1] for val in data_dict.values() if val[1] > 0]
+        )
+        return points, values
 
     # Mapping image coords one index at a time to avoid excessive memory usage
     # if the dataset becomes extremely large which, presumably, it will.
@@ -141,14 +145,9 @@ class ImageProcessor:
             self._griddata_method = kwargs["griddata_method"]
 
     def create_image(self, img_width, img_height):
-        (data, count_data) = self.detector_geometry.parse_data_for_image(
+        (points, values) = self.detector_geometry.parse_data_for_image(
             img_width, img_height
         )
-        # Prepare data for interpolation
-        # Get rid of zero COUNT values (areas the detectors did not cover)
-        points = np.argwhere(count_data > 0)  # Coords of measured areas
-        values = data[count_data > 0]  # Corresponding measured values
-
         interpolated_data = self._perform_interpolation(
             points, values, img_width, img_height
         )
@@ -198,7 +197,7 @@ if __name__ == "__main__":
     processor.set_processing_params(
         interpolation_method="linear",
         sigma_value=2,
-        griddata_method="nearest",
+        griddata_method="linear",
     )
     width, height = 1000, 1000
     processor.create_image(width, height).save("data/output.png")
