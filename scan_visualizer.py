@@ -80,10 +80,10 @@ class HexagonalDetectorGeometry:
         # it might be a problem to search through the array to find the
         # correct index to update.
         points = np.array(
-            [key for key, val in data_dict.items() if val[1] > 0]
+            [coords for coords, (_, count) in data_dict.items() if count > 0]
         )
         values = np.array(
-            [val[0] / val[1] for val in data_dict.values() if val[1] > 0]
+            [amp / count for (amp, count) in data_dict.values() if count > 0]
         )
         return points, values
 
